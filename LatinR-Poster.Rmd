@@ -1,0 +1,129 @@
+---
+title: "Visualizando narrativas en economía"
+output: md_document
+---
+
+###Introducción
+
+Contrariamente al resto de las ciencias sociales, los impactos de las narrativas en la economía y las finanzas carecen de un estudio extendido en la academia. Entendiendo a las narrativas como explicaciones de una determinada sucesión de eventos, son la base para la formación de expectativas y acciones por parte de los individuos. Existen dificultades para distinguir entre las narrativas asociadas al comportamiento económico y aquellas que generan cambios en el mismo, pero éstas no pueden ser consideradas como limitaciones al desarrollo del estudio de las narrativas (Shiller R.J., 2017).
+
+El objetivo de este trabajo es contribuir a este tipo de investigaciones. A partir de noticias publicadas en la prensa británica entre 2005 y 2009, realizar las diferentes tipos de análisis y visualizar los resultados a través del tiempo tanto a nivel global  como por cada medio gráfico. Las preguntas que movilizan este trabajo son las siguientes: 
+
+1. ¿Cómo evoluciona la frecuencia de términos en las noticias? ¿Es consistente con los datos macroeconómicos de la crisis financiera?
+2. ¿Qué conclusiones se pueden establecer con el análisis de sentimiento? ¿Cuál es el sentimiento general y de cada diario en particular?
+3. En términos generales, ¿se pueden definir los tópicos de las noticias? ¿Fueron cambiando a través del tiempo?
+
+###Metodología
+
+Se obtuvo, mediante web scraping, un dataset de 10600 noticias periodísticas de las secciones de economía de la prensa británica entre  los años 2005 y 2009 compuesto por los siguientes campos: 
+
++ *author*: autor de la nota periodística
++ *date*: fecha de publicación
++ *heading*: título de la nota
++ *content*: cuerpo de la nota
+
+Como cada noticia tiene información que no resulta relevante para el análisis, se realizaron tareas de limpieza de texto sobre el campo *content* para simplificar el análisis:
+
++ Eliminación de signos de puntuación
++ Eliminación de espacios en blanco extra
++ Eliminacion de números
++ Eliminación de *stopwords*
+
+El texto fue separado en *tokens*, partes más pequeñas del texto, para analizar la frecuencia de las palabras individuales que resultaban de interés. Para tener tendencias más claras de frecuencias se agruparon las fechas a nivel mensual. 
+
+###Resultados
+
+#### Frecuencia de términos
+
+Se tomaron las frecuencias de determinados términos que resultaban de interés para el análisis. En principio, ĺa pregunta principal era que cómo se estaba definiendo a la crisis financiera global. Convencionalmente, se define como "recession" *(recesión)* a un corto período de crecimiento económico negativo. Cuando se trata de plazos más extendidos en el tiempo, se utiliza el término "depression" *(depresión)*. Tomamos también los términos "crisis" *(crisis)*  y "crunch" (sinónimo del primero y utilizado en la oralidad) para ampliar el análisis.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+library(ggplot2)
+library(tidytext)
+library(tidyverse)
+library(topicmodels)
+library(plotly)
+library(lubridate)
+data <- read.csv("~/Desktop/FactivaAnalysis/tidy_data.csv")
+freq_chart <- data %>%
+  mutate(time = as.Date(time)) %>%
+  filter(time > "2007-10-01") %>%
+  filter(word %in% c("depression","recession","crisis","crunch")) %>%
+  group_by(time, word) %>%
+  summarise(n = sum(n)) %>%
+  ggplot(aes(x=time, y = n, col = word)) +
+  geom_line() +
+  geom_point() +
+  theme(axis.title.x=element_blank()) +
+  labs(y="Frecuencia", col = "Término")
+
+ggplotly(freq_chart)
+```
+
+A partir de la octubre del 2007, estos términos se vuelven mas frecuentes en la prensa. Las narrativa imperante sobre el fenómeno fue que era una recesión y no una depresión. 
+
+
+#### Análisis de sentimiento
+
+La segunda de las preguntas era cuan negativas o positivas eran las noticias de los suplementos económicos. Para calcular el sentimiento se cruzaron las noticias con el léxico [bing](https://www.cs.uic.edu/~liub/FBS/sentiment-analysis.html) para realizar minería de opiniones. Una vez clasificadas las palabras entre positivas y negativas, se calculó una métrica de "sentimiento neto" para comprender si, en términos globales, la prensa es más negativa o más positiva frente a los sucesos económicos. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+sentiment_chart <- data %>%
+  mutate(time = as.Date(time)) %>%
+  filter(time > "2007-10-01") %>%
+  inner_join(get_sentiments("bing")) %>%
+  group_by(time, sentiment) %>%
+  summarise(n = sum(n)) %>%
+  spread(sentiment, n) %>%
+  mutate(net_sentiment = positive - negative) %>%
+  ggplot(aes(x=time, y = net_sentiment, fill = net_sentiment)) +
+  geom_col() +
+  labs(y="Frecuencia", x = "", fill = "Sentimiento Neto") 
+
+
+ggplotly(sentiment_chart)
+```
+
+
+#### Modelado de tópicos
+
+Utilizando el algoritmo LDA *(Latent Dirichlet allocation)* se logró identificar cuáles eran los temas comentados en las noticias año a año. De esta manera, se estableció que entre 2005 y 2006, los tópicos de conversación en los medios eran política monetaria, la economía real y la política fiscal
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+topics <- read.csv("~/Desktop/FactivaAnalysis/all_topics_modified.csv")
+
+chart_2005_2006 <- topics %>%
+  filter(year %in% c(2005,2006)) %>%
+  group_by(year, topic) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)%>%
+  ggplot(aes(term, beta, fill=factor(topic))) +
+  geom_col(show.legend = F) +
+  coord_flip() +
+  facet_wrap(topic~., scale="free") +
+  labs(x="Términos",y="Beta", title="Tópicos 2005-2006")
+
+chart_2005_2006
+```
+Sin embargo, a partir de 2007 un nuevo tópico relevante de conversación aparece en los medios: la burbuja inmobiliaria.
+```{r echo=FALSE, message=FALSE, warning=FALSE, paged.print=FALSE}
+chart_2007_2008 <- topics %>%
+  group_by(year, topic) %>%
+  filter(year %in% c(2007,2008)) %>%
+  top_n(10, beta) %>%
+  ungroup() %>%
+  arrange(topic, -beta)%>%
+  ggplot(aes(term, beta, fill = factor(topic))) +
+  geom_col(show.legend = F) +
+  coord_flip() +
+  facet_wrap(topic~., scale="free") +
+  labs(x="Términos",y="Beta", title="Tópicos 2007-2008")
+
+chart_2007_2008
+```
+
+#### Conclusión
+
+El objetivo de este corto trabajo es colaborar con el (poco extendido) estudio de las narrativas en economía, en contraposición al resto de la ciencias sociales. Existe un potencial para ampliar la discusión de los fenómenos económicos utilizando fuentes poco exploradas por la disciplina [Schiller](https://cowles.yale.edu/sites/default/files/files/pub/d20/d2069.pdf). 
